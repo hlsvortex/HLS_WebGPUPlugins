@@ -57,6 +57,24 @@ export class TerrainPlugin {
 
         const onChangeLive = (val: number) => { this.terrainSystem.updateGPULive(ui.params); };
 
+        // ── World Generation ──
+        ui.addSection('Terrain', '🌍 World Generation', '#4fa');
+        ui.addToggle('Terrain', 'proceduralMode', 'Procedural (Delaunay)', false, 'Use graph-based generation instead of heightmaps', null);
+        
+        ui.addSlider('Terrain', 'procIslandSize', 'Island Size', 0.1, 1.0, 0.05, 0.45, 'Radius of the procedural island before dropping to ocean', null);
+        ui.addSlider('Terrain', 'procNoiseScale', 'Noise Scale', 0.5, 10.0, 0.5, 3.0, 'Frequency of the macro mountains', null);
+        ui.addSlider('Terrain', 'procNoiseAmp', 'Noise Height', 0.0, 1.5, 0.05, 0.4, 'Amplitude of the macro mountains', null);
+        ui.addSlider('Terrain', 'procMountainChance', 'Mountains', 0.0, 1.0, 0.05, 0.5, 'Amount of mountain coverage vs flatlands', null);
+        ui.addSlider('Terrain', 'procHillsHeight', 'Hills Height', 0.0, 1.0, 0.05, 0.3, 'How pronounced the rolling hills are', null);
+        ui.addSlider('Terrain', 'procSeed', 'Random Seed', 0, 100, 1, 1, 'Seed offset for procedural noise', null);
+
+        ui.addText('Terrain', 'heightmapUrl', 'Heightmap URL', '/heightmap.png', 'Path to base heightmap', null);
+        ui.addText('Terrain', 'rivermapUrl', 'Rivermap URL', '/heightmap_rivers.png', 'Path to river map', null);
+        ui.addButton('Terrain', 'Rebuild World', () => {
+            console.log('[TerrainPlugin] Triggering full graph rebuild...');
+            this.terrainSystem.rebuildGraph(ui.params);
+        });
+
         // ── Height Formula ──
         ui.addSection('Terrain', '📐 Height Formula', '#f90');
         ui.addSlider('Terrain', 'coastPV', 'Coast PV', 0.05, 0.50, 0.01, 0.23, 'Pixel value threshold for coast/ocean boundary.', onChangeLive);

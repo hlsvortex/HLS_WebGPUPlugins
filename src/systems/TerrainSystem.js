@@ -120,6 +120,24 @@ export class TerrainSystem {
   }
 
   /**
+   * Full macroscopic rebuild using GraphGenerator (for changing heightmaps or procedural mode).
+   */
+  async rebuildGraph(config) {
+    if (!this.gpuCompute || !this.gpuCompute.ready) return;
+
+    const graphGen = new GraphGenerator();
+    const riverMapData = await graphGen.generate(this.textureSize, config);
+
+    // Write new CPU data into the riverMap texture
+    this.gpuCompute.updateGraphData(riverMapData);
+    
+    // Call the live update which will dispatch shaders, read back, and update textures
+    await this.updateGPULive(config);
+    
+    console.log('[TerrainSystem] Graph Rebuilt and Textures Updated!');
+  }
+
+  /**
    * Reads back the interpolated terrain height at world coordinates.
    * Requires cachedHeightData to be populated (which happens after init() or updateGPULive()).
    */

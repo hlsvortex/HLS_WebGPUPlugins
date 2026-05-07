@@ -130,12 +130,7 @@ export class GPUCompute {
 
     // Upload CPU data to River Map texture if provided
     if (cpuRiverData) {
-      this.device.queue.writeTexture(
-        { texture: this.textures.riverMap },
-        cpuRiverData,
-        { bytesPerRow: size * 16 }, // rgba32float = 16 bytes per pixel
-        [size, size]
-      );
+      this.updateGraphData(cpuRiverData);
     }
 
     console.log(`[GPUCompute] Created ${size}x${size} compute textures`);
@@ -147,6 +142,16 @@ export class GPUCompute {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     device.queue.writeBuffer(this.settingsBuffer, 0, this.terrainSettings);
+  }
+
+  updateGraphData(cpuRiverData) {
+    if (!this.device || !this.textures.riverMap) return;
+    this.device.queue.writeTexture(
+      { texture: this.textures.riverMap },
+      cpuRiverData,
+      { bytesPerRow: this.textureSize * 16 }, // rgba32float = 16 bytes per pixel
+      [this.textureSize, this.textureSize]
+    );
   }
 
   async _buildPipelines() {

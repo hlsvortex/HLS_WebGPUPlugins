@@ -227,11 +227,11 @@ export class DebugUIPlugin {
         input.addEventListener('input', () => {
             this.params[key] = parseFloat(input.value);
             val.textContent = Number(this.params[key]).toFixed(decimals);
-            if (panel.enabled) onChange(this.params[key]);
+            if (panel.enabled && onChange) onChange(this.params[key]);
         });
 
         // Fire initial callback
-        onChange(this.params[key]);
+        if (onChange) onChange(this.params[key]);
 
         row.appendChild(lbl);
         row.appendChild(input);
@@ -328,14 +328,47 @@ export class DebugUIPlugin {
             this.params[key] = input.checked ? 1 : 0;
             val.textContent = input.checked ? 'ON' : 'OFF';
             val.style.color = input.checked ? '#4f8' : '#f84';
-            if (panel.enabled) onChange(input.checked);
+            if (panel.enabled && onChange) onChange(input.checked);
         });
 
-        onChange(!!this.params[key]);
+        if (onChange) onChange(!!this.params[key]);
 
         row.appendChild(lbl);
         row.appendChild(input);
         row.appendChild(val);
+        panel.content.appendChild(row);
+    }
+
+    /** Add a text input */
+    addText(pluginName: string, key: string, label: string, defaultValue: string, tooltip: string, onChange: ((val: string) => void) | null) {
+        const panel = this._pluginPanels.get(pluginName);
+        if (!panel) return;
+
+        if (this.params[key] === undefined) {
+            this.params[key] = defaultValue;
+        }
+
+        const row = document.createElement('div');
+        row.className = 'pm-slider-row';
+        if (tooltip) row.title = tooltip;
+
+        const lbl = document.createElement('span');
+        lbl.className = 'pm-slider-label';
+        lbl.textContent = label;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = this.params[key];
+        input.className = 'pm-text-input';
+        input.style.cssText = 'flex: 1; background: rgba(0,0,0,0.4); color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px; font-size: 11px; margin-left: 8px;';
+
+        input.addEventListener('change', () => {
+            this.params[key] = input.value;
+            if (panel.enabled && onChange) onChange(input.value);
+        });
+
+        row.appendChild(lbl);
+        row.appendChild(input);
         panel.content.appendChild(row);
     }
 
