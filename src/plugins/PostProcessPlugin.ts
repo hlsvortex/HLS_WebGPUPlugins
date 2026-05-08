@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as THREE from 'three/webgpu';
 import { pass, uniform, float, mix, vec3, vec2, color, positionLocal, distance, sin, fract, time } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';

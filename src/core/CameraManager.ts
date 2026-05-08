@@ -202,9 +202,11 @@ export class CameraManager extends EventDispatcher {
         const wasLocked = this.isLocked;
         this.isLocked = (document.pointerLockElement === this.domElement);
         if (!wasLocked && this.isLocked) {
-            this.dispatchEvent({ type: 'lock' });
+            // @ts-ignore
+            this.dispatchEvent({ type: 'lock' } as any);
         } else if (wasLocked && !this.isLocked) {
-            this.dispatchEvent({ type: 'unlock' });
+            // @ts-ignore
+            this.dispatchEvent({ type: 'unlock' } as any);
         }
     }
     

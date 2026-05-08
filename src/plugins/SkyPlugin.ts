@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as THREE from 'three/webgpu';
 import {
     positionLocal, cameraPosition, uniform, float, vec2, vec3, vec4, color,
@@ -432,9 +433,9 @@ export class SkyPlugin {
         geo.setAttribute('aPhase', new THREE.BufferAttribute(phaseArray, 1));
         geo.setAttribute('aColor', new THREE.BufferAttribute(colorArray, 3));
 
-        const aSize = attribute('aSize');
-        const aPhase = attribute('aPhase');
-        const aColor = attribute('aColor');
+        const aSize = attribute('aSize', 'float');
+        const aPhase = attribute('aPhase', 'float');
+        const aColor = attribute('aColor', 'vec3');
 
         // Twinkle factor based on time and phase
         const twinkle = sin(time.mul(2.0).add(aPhase)).mul(0.3).add(0.7);

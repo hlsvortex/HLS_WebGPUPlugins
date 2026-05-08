@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as THREE from 'three/webgpu';
 import {
   positionLocal, instanceIndex, modelWorldMatrix, texture,

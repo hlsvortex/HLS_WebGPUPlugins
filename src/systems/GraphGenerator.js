@@ -295,8 +295,8 @@ export class GraphGenerator {
             return await this._generateProcedural(textureSize, 15000, config);
         }
 
-        const heightUrl = config.heightmapUrl || '/heightmap.png';
-        const riverUrl = config.rivermapUrl || '/heightmap_rivers.png';
+        const heightUrl = config.heightmapUrl || './heightmap.png';
+        const riverUrl = config.rivermapUrl || './heightmap_rivers.png';
 
         return new Promise((resolve, reject) => {
             // Load both heightmap and river map in parallel

@@ -55,7 +55,7 @@ export class TerrainPlugin {
             this.terrainSystem.updateGPULive(params);
         });
 
-        const onChangeLive = (val: number) => { this.terrainSystem.updateGPULive(ui.params); };
+        const onChangeLive = () => { this.terrainSystem.updateGPULive(ui.params); };
 
         // ── World Generation ──
         ui.addSection('Terrain', '🌍 World Generation', '#4fa');
@@ -68,8 +68,8 @@ export class TerrainPlugin {
         ui.addSlider('Terrain', 'procHillsHeight', 'Hills Height', 0.0, 1.0, 0.05, 0.3, 'How pronounced the rolling hills are', null);
         ui.addSlider('Terrain', 'procSeed', 'Random Seed', 0, 100, 1, 1, 'Seed offset for procedural noise', null);
 
-        ui.addText('Terrain', 'heightmapUrl', 'Heightmap URL', '/heightmap.png', 'Path to base heightmap', null);
-        ui.addText('Terrain', 'rivermapUrl', 'Rivermap URL', '/heightmap_rivers.png', 'Path to river map', null);
+        ui.addText('Terrain', 'heightmapUrl', 'Heightmap URL', './heightmap.png', 'Path to base heightmap', null);
+        ui.addText('Terrain', 'rivermapUrl', 'Rivermap URL', './heightmap_rivers.png', 'Path to river map', null);
         ui.addButton('Terrain', 'Rebuild World', () => {
             console.log('[TerrainPlugin] Triggering full graph rebuild...');
             this.terrainSystem.rebuildGraph(ui.params);

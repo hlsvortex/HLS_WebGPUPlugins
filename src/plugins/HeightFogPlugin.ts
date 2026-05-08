@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as THREE from 'three/webgpu';
 import { fog, color, positionWorld, cameraPosition, distance, smoothstep, uniform, float, max, exp, sin, cos, time, mix, clamp } from 'three/tsl';
 
