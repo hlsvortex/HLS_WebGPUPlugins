@@ -2,6 +2,8 @@
 
 ![WebGPU Terrain Engine Screenshot](public/screenshot.png)
 
+This was orginaly made for the 2026 #Vibejam https://vibej.am/2026/ 
+
 A modular, plugin-driven procedural terrain engine built on **Three.js r184 WebGPU** and **Vite**. It generates massive open-world landscapes entirely on the GPU using native WebGPU compute shaders, with real-time TSL (Three Shading Language) vertex displacement, procedural biome classification, dynamic water, foliage instancing, and atmospheric rendering — all running in the browser.
 
 > **Status:** Active development · Requires a WebGPU-capable browser (Chrome 113+, Edge 113+, or Firefox Nightly with `dom.webgpu.enabled`).
