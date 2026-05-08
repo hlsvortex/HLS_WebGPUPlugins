@@ -2,7 +2,12 @@
 
 ![WebGPU Terrain Engine Screenshot](public/screenshot.png)
 
-This was orginaly made for the 2026 #Vibejam https://vibej.am/2026/ 
+Stay up to date with what im doing. Follow me here!
+[![Twitter](https://img.shields.io/twitter/follow/HLS_dev?style=social)](https://twitter.com/HLS_dev)
+[![YouTube](https://img.shields.io/badge/YouTube-@HyperLightGameDev-FF0000?style=flat&logo=youtube&logoColor=white)](https://youtube.com/@HyperLightGameDev)
+[![Website](https://img.shields.io/badge/Website-hyperlightstudios.xyz-0052FF?style=flat&logo=web)](https://hyperlightstudios.xyz)
+
+Originally Created for 2026 #Vibejam https://vibej.am/2026/ 
 
 A modular, plugin-driven procedural terrain engine built on **Three.js r184 WebGPU** and **Vite**. It generates massive open-world landscapes entirely on the GPU using native WebGPU compute shaders, with real-time TSL (Three Shading Language) vertex displacement, procedural biome classification, dynamic water, foliage instancing, and atmospheric rendering — all running in the browser.
 
