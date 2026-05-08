@@ -23,6 +23,13 @@ export class WaterPlugin {
     _uFoamIntensity: any;
     _uMeshResolution: number;
 
+    // Color uniforms
+    _uShoreColor: any;
+    _uMidColor: any;
+    _uDeepColor: any;
+    _uFoamColor: any;
+    _uSkyReflectColor: any;
+
     constructor() {
         this.waterMesh = null;
         this.seaLevel = 0;
@@ -91,6 +98,18 @@ export class WaterPlugin {
             if (this._uFoamIntensity) this._uFoamIntensity.value = val;
         });
 
+        // ── Colors ──
+        ui.addSection('Water', '🎨 Colors', '#acf');
+        ui.addSlider('Water', 'shoreR', 'Shore R', 0.0, 1.0, 0.01, 0.10, 'Shore color red.', (v: number) => { this._uShoreColor.value.r = v; });
+        ui.addSlider('Water', 'shoreG', 'Shore G', 0.0, 1.0, 0.01, 0.60, 'Shore color green.', (v: number) => { this._uShoreColor.value.g = v; });
+        ui.addSlider('Water', 'shoreB', 'Shore B', 0.0, 1.0, 0.01, 0.50, 'Shore color blue.', (v: number) => { this._uShoreColor.value.b = v; });
+        ui.addSlider('Water', 'deepR', 'Deep R', 0.0, 1.0, 0.01, 0.01, 'Deep color red.', (v: number) => { this._uDeepColor.value.r = v; });
+        ui.addSlider('Water', 'deepG', 'Deep G', 0.0, 1.0, 0.01, 0.08, 'Deep color green.', (v: number) => { this._uDeepColor.value.g = v; });
+        ui.addSlider('Water', 'deepB', 'Deep B', 0.0, 1.0, 0.01, 0.22, 'Deep color blue.', (v: number) => { this._uDeepColor.value.b = v; });
+        ui.addSlider('Water', 'foamR', 'Foam R', 0.0, 1.0, 0.01, 0.92, 'Foam color red.', (v: number) => { this._uFoamColor.value.r = v; });
+        ui.addSlider('Water', 'foamG', 'Foam G', 0.0, 1.0, 0.01, 0.96, 'Foam color green.', (v: number) => { this._uFoamColor.value.g = v; });
+        ui.addSlider('Water', 'foamB', 'Foam B', 0.0, 1.0, 0.01, 0.98, 'Foam color blue.', (v: number) => { this._uFoamColor.value.b = v; });
+
         // ── Performance ──
         ui.addSection('Water', '⚙️ Performance', '#88f');
         ui.addSlider('Water', 'waterMeshRes', 'Mesh Resolution', 128, 2048, 128, 512, 'Grid subdivisions (requires regenerate).', (_val: number) => {});
@@ -114,6 +133,13 @@ export class WaterPlugin {
       this._uOpacityDeep = uniform(float(0.98));
       this._uFresnelStrength = uniform(float(0.35));
       this._uFoamIntensity = uniform(float(1.2));
+
+      // Color uniforms
+      this._uShoreColor = uniform(color(0.10, 0.60, 0.50));
+      this._uMidColor   = uniform(color(0.04, 0.28, 0.48));
+      this._uDeepColor  = uniform(color(0.01, 0.08, 0.22));
+      this._uFoamColor  = uniform(color(0.92, 0.96, 0.98));
+      this._uSkyReflectColor = uniform(color(0.50, 0.68, 0.82));
 
       const tSize = float(terrainSystem.terrainSize);
       const hScale = float(terrainSystem.heightScale);
@@ -191,9 +217,9 @@ export class WaterPlugin {
       const deepColor   = color(0.01, 0.08, 0.22);
       const skyReflect  = color(0.50, 0.68, 0.82);
       
-      const baseWaterCol = mix(shoreColor, mix(midColor, deepColor, smoothstep(float(0.4), float(1.0), depthColor)), depthColor);
+      const baseWaterCol = mix(this._uShoreColor, mix(this._uMidColor, this._uDeepColor, smoothstep(float(0.4), float(1.0), depthColor)), depthColor);
       const waterWithSeabed = mix(seabedColor, baseWaterCol, seabedVisible);
-      const topWaterCol = mix(waterWithSeabed, skyReflect, surfaceFresnel.mul(this._uFresnelStrength));
+      const topWaterCol = mix(waterWithSeabed, this._uSkyReflectColor, surfaceFresnel.mul(this._uFresnelStrength));
 
       const isUnderwaterSurface = step(cameraPosition.y, wPos.y); 
       const invertedFresnelRaw = pow(float(1.0).sub(max(rawNDotV.negate(), float(0.0))), float(5.0));
@@ -202,7 +228,6 @@ export class WaterPlugin {
       
       const finalWaterCol = mix(topWaterCol, undersideCol, isUnderwaterSurface);
       
-      const foamColor  = color(0.92, 0.96, 0.98);
       const foamZone   = smoothstep(float(4.0), float(0.0), waterDepth);
       
       const scroll1 = fract(waterDepth.mul(0.35).sub(time.mul(0.4)));
@@ -216,7 +241,7 @@ export class WaterPlugin {
       const crestFoam = smoothstep(float(0.7), float(1.0), sin(wX).mul(0.5).add(0.5)).mul(depthWaveFactor).mul(0.20);
       
       const totalFoam = foamBands.add(solidShoreline).add(crestFoam).clamp(0.0, 1.0);
-      waterMat.colorNode = mix(finalWaterCol, foamColor, totalFoam);
+      waterMat.colorNode = mix(finalWaterCol, this._uFoamColor, totalFoam);
       
       const depthOpacity = smoothstep(float(0.0), float(5.0), waterDepth);
       const baseOpacity = mix(this._uOpacityShallow, this._uOpacityDeep, depthOpacity);

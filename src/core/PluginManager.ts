@@ -39,8 +39,9 @@ export class PluginManager {
         const debugUI = this.core.debugUI;
         for (const [name, plugin] of this.plugins.entries()) {
             if (typeof plugin.update === 'function') {
-                // Skip update if the plugin is disabled via the UI
-                if (debugUI && !debugUI.isPluginEnabled(name)) continue;
+                // Skip update if the plugin is disabled via the UI,
+                // unless the plugin explicitly opts in to always running (_alwaysUpdate)
+                if (!plugin._alwaysUpdate && debugUI && !debugUI.isPluginEnabled(name)) continue;
                 plugin.update(deltaTime);
             }
         }

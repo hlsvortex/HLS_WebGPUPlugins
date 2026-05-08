@@ -1,5 +1,7 @@
 import * as THREE from 'three/webgpu';
 
+const _UP = new THREE.Vector3(0, 1, 0);
+
 export class PlayerControllerPlugin {
     core: any;
     
@@ -155,12 +157,13 @@ export class PlayerControllerPlugin {
                 this.onGround = false;
             }
         }
-        
+
+
         if (this.direction.lengthSq() > 0) {
             this.direction.normalize();
         }
         
-        this.direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.cameraManager.yaw);
+        this.direction.applyAxisAngle(_UP, this.cameraManager.yaw);
         
         const isSprinting = this.input.isHeld('SPRINT');
         const targetSpeed = this.walkSpeed * (isSprinting ? this.sprintMultiplier : 1.0);

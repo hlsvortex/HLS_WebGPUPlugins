@@ -45,9 +45,19 @@ export class SkyPlugin {
     _uAuroraColor2: any;
     _uShootingStarDensity: any;
 
+    // Cloud uniforms
+    _uCloudCoverage: any;
+    _uCloudSoftness: any;
+    _uCloudSpeed: any;
+    _uCloudScale: any;
+    _uCloudColor: any;
+    _uCloudShadowColor: any;
+    _uCloudHeight: any;
+
     // Readouts
     _timeReadout: HTMLSpanElement | null;
     _phaseReadout: HTMLSpanElement | null;
+    _ambientLight: THREE.AmbientLight | null;  // Cached reference — avoid scene.traverse every frame
 
     constructor() {
         this.skyMesh = null;
@@ -57,6 +67,7 @@ export class SkyPlugin {
         this._uAutoRotate = true;
         this._timeReadout = null;
         this._phaseReadout = null;
+        this._ambientLight = null;
     }
 
     async init() {
@@ -69,7 +80,23 @@ export class SkyPlugin {
         scene.add(this.starsMesh);
 
         this.core.skySystem = this;
+
+        // Expose cloud uniforms on core so other plugins (terrain, grass)
+        // can sample the identical noise to cast fake cloud shadows on the ground.
+        this.core.cloudShadowUniforms = {
+            coverage : this._uCloudCoverage,
+            softness : this._uCloudSoftness,
+            speed    : this._uCloudSpeed,
+            scale    : this._uCloudScale,
+            strength : uniform(float(0.35)),   // max shadow darkness (0 = off, 1 = black)
+        };
+
         this._registerUI();
+
+        // Cache ambient light to avoid scene.traverse every frame
+        this.core.scene.traverse((obj: any) => {
+            if (obj.isAmbientLight) this._ambientLight = obj;
+        });
 
         console.log('[SkyPlugin] Procedural sky dome initialized.');
     }
@@ -100,6 +127,15 @@ export class SkyPlugin {
         this._uAuroraColor1 = uniform(new THREE.Color(0.1, 1.0, 0.5));
         this._uAuroraColor2 = uniform(new THREE.Color(0.6, 0.2, 1.0));
         this._uShootingStarDensity = uniform(float(0.5));
+
+        // Cloud uniforms
+        this._uCloudCoverage    = uniform(float(0.45));  // 0=clear, 1=overcast
+        this._uCloudSoftness    = uniform(float(0.35));  // edge sharpness
+        this._uCloudSpeed       = uniform(float(0.06));  // scroll speed
+        this._uCloudScale       = uniform(float(3.5));   // noise frequency
+        this._uCloudColor       = uniform(new THREE.Color(1.0, 1.0, 1.0));     // lit cloud tops
+        this._uCloudShadowColor = uniform(new THREE.Color(0.60, 0.65, 0.72)); // underside shadow
+        this._uCloudHeight      = uniform(float(0.12));  // min upDot to show clouds
 
         // === Compute sun direction from time ===
         // Time 0-24 maps to a full arc. Sun rises at 6, sets at 18.
@@ -256,6 +292,75 @@ export class SkyPlugin {
         const ssAlpha = ssCycle.mul(float(1.0).sub(ssCycle)).mul(4.0); // Parabola fade in/out
 
         skyColor = skyColor.add(vec3(1.0, 0.9, 0.8).mul(ssHead.add(ssTail.mul(0.5))).mul(ssActive).mul(ssAlpha));
+
+        // === Procedural FBM Clouds ===
+        // Project view ray onto a flat cloud plane (perspective divide onto imaginary cloud layer)
+        const cloudTime = time.mul(this._uCloudSpeed);
+        const cloudPlaneUV = viewDir.xz.div(viewDir.y.add(0.001));
+
+        // Scale + drift in TWO different directions to prevent locking to any axis
+        // Using irrational numbers (golden ratio derivatives) for all multipliers
+        // to ensure the pattern never repeats visibly.
+        const cs = this._uCloudScale;
+        const ct1 = cloudTime;
+        const ct2 = cloudTime.mul(0.618);   // drift layer 2 at golden-ratio speed
+        const ct3 = cloudTime.mul(0.381);   // drift layer 3
+        const ct4 = cloudTime.mul(1.272);   // drift layer 4 (faster small detail)
+
+        // KEY FIX: Cross-mix u and v BEFORE feeding into sin/cos.
+        // sin(u)*cos(v) is separable → grid. sin(u+v)*cos(u-v) is NOT → organic.
+        const px = cloudPlaneUV.x.mul(cs);
+        const py = cloudPlaneUV.y.mul(cs);
+
+        // Octave 1 — large billowing puffs. Diagonal cross terms break the grid.
+        const o1a = px.add(py.mul(0.7)).add(ct1);
+        const o1b = py.sub(px.mul(0.7)).add(ct1.mul(0.8));
+        const n1  = sin(o1a).add(cos(o1b)).mul(0.5);
+
+        // Octave 2 — medium turbulence. Warped heavily by n1 and uses perpendicular drift.
+        const o2a = px.mul(1.83).add(py.mul(1.41)).add(ct2).add(n1.mul(2.1));
+        const o2b = py.mul(1.97).sub(px.mul(1.23)).add(ct2.mul(1.3)).sub(n1.mul(1.7));
+        const n2  = sin(o2a).add(cos(o2b)).mul(0.5);
+
+        // Octave 3 — fine detail. Cross-warped by both n1 and n2.
+        const o3a = px.mul(3.71).add(py.mul(2.93)).add(ct3).add(n2.mul(1.8)).sub(n1.mul(0.9));
+        const o3b = py.mul(4.13).sub(px.mul(3.57)).add(ct3.mul(1.7)).add(n1.mul(1.2)).add(n2.mul(0.7));
+        const n3  = sin(o3a).add(cos(o3b)).mul(0.5);
+
+        // Octave 4 — whispy high-frequency variation (breaks any remaining periodicity).
+        const o4a = px.mul(7.23).add(py.mul(6.17)).add(ct4).add(n3.mul(2.5)).sub(n2.mul(1.1));
+        const o4b = py.mul(8.31).sub(px.mul(7.91)).add(ct4.mul(0.9)).sub(n3.mul(1.5)).add(n1.mul(0.5));
+        const n4  = sin(o4a).add(cos(o4b)).mul(0.5);
+
+        // FBM: weighted sum — large shapes dominate, fine detail adds variation
+        const fbm = n1.mul(0.46).add(n2.mul(0.28).add(n3.mul(0.16).add(n4.mul(0.10))));
+        // Remap -1..1 → 0..1
+        const cloudNoiseFBM = fbm.mul(0.5).add(0.5);
+
+        // Coverage threshold: values above (1 - coverage) become cloud
+        const threshold = float(1.0).sub(this._uCloudCoverage);
+        // Soft threshold using smoothstep for wispy edges
+        const cloudDensity = smoothstep(threshold, threshold.add(this._uCloudSoftness), cloudNoiseFBM);
+
+        // Vertical fade — clouds only appear above _uCloudHeight elevation
+        const cloudVerticalFade = smoothstep(this._uCloudHeight, this._uCloudHeight.add(float(0.08)), upDot);
+
+        // Lit vs shadow: cloud tops face sun (sunElevation > 0 = daytime)
+        // Shadow on underside when sun is low
+        const sunLit = smoothstep(float(0.0), float(0.3), sunElevation);
+        const cloudLitColor: any  = mix(vec3(this._uCloudShadowColor), vec3(this._uCloudColor), sunLit);
+
+        // At sunset tint clouds orange-pink
+        const cloudSunsetTint: any = mix(cloudLitColor, vec3(this._uSunsetTint).mul(1.2), sunsetFactor.mul(0.5));
+
+        // Night clouds are dark grey
+        const cloudNightColor = vec3(0.12, 0.14, 0.18);
+        const finalCloudColor: any = mix(cloudNightColor, cloudSunsetTint, dayFactor);
+
+        // Only show clouds in daytime / twilight (fade out at night)
+        const cloudVisibility = cloudDensity.mul(cloudVerticalFade).mul(dayFactor.mul(0.85).add(0.15));
+
+        skyColor = mix(skyColor, finalCloudColor, cloudVisibility);
 
         // === Material ===
         this.skyMat = new THREE.MeshBasicNodeMaterial({
@@ -461,6 +566,33 @@ export class SkyPlugin {
             if (this._uAuroraColor2) this._uAuroraColor2.value.set(hex);
         });
 
+        // ── Clouds ──
+        ui.addSection('Sky', '☁️ Clouds', '#ddf');
+        ui.addSlider('Sky', 'cloudCoverage', 'Coverage', 0.0, 1.0, 0.02, 0.45, 'How much of the sky is covered (0=clear, 1=overcast).', (val: number) => {
+            if (this._uCloudCoverage) this._uCloudCoverage.value = val;
+        });
+        ui.addSlider('Sky', 'cloudSoftness', 'Softness', 0.05, 0.8, 0.05, 0.35, 'Edge feathering — higher = wispier.', (val: number) => {
+            if (this._uCloudSoftness) this._uCloudSoftness.value = val;
+        });
+        ui.addSlider('Sky', 'cloudScale', 'Scale', 1.0, 10.0, 0.25, 3.5, 'Size of cloud puffs — lower = larger clouds.', (val: number) => {
+            if (this._uCloudScale) this._uCloudScale.value = val;
+        });
+        ui.addSlider('Sky', 'cloudSpeed', 'Speed', 0.0, 0.5, 0.005, 0.06, 'Cloud scrolling speed.', (val: number) => {
+            if (this._uCloudSpeed) this._uCloudSpeed.value = val;
+        });
+        ui.addSlider('Sky', 'cloudHeight', 'Min Elevation', 0.0, 0.4, 0.02, 0.12, 'Minimum sky elevation for cloud layer.', (val: number) => {
+            if (this._uCloudHeight) this._uCloudHeight.value = val;
+        });
+        ui.addColor('Sky', 'cloudColor', 'Cloud Top', '#ffffff', 'Lit cloud top color.', (hex: string) => {
+            if (this._uCloudColor) this._uCloudColor.value.set(hex);
+        });
+        ui.addColor('Sky', 'cloudShadow', 'Cloud Shadow', '#99a6b8', 'Cloud underside shadow color.', (hex: string) => {
+            if (this._uCloudShadowColor) this._uCloudShadowColor.value.set(hex);
+        });
+        ui.addSlider('Sky', 'cloudGroundShadow', 'Ground Shadow', 0.0, 0.8, 0.05, 0.35, 'Strength of cloud shadows cast on terrain.', (val: number) => {
+            if (this.core.cloudShadowUniforms) this.core.cloudShadowUniforms.strength.value = val;
+        });
+
         // ── Readouts ──
         ui.addSection('Sky', '📊 Info', '#556');
         this._timeReadout = ui.addReadout('Sky', 'Time');
@@ -553,19 +685,17 @@ export class SkyPlugin {
         const elevation = Math.sin(sunAngle);
         const dayFactor = Math.max(0, Math.min(1, (elevation + 0.1) / 0.25));
         
-        // Ambient light
-        this.core.scene.traverse((obj: any) => {
-            if (obj.isAmbientLight) {
-                obj.intensity = THREE.MathUtils.lerp(0.15, 0.4, dayFactor);
-                const nightR = 0.15, nightG = 0.18, nightB = 0.35;
-                const dayR = 0.53, dayG = 0.6, dayB = 0.73;
-                obj.color.setRGB(
-                    THREE.MathUtils.lerp(nightR, dayR, dayFactor),
-                    THREE.MathUtils.lerp(nightG, dayG, dayFactor),
-                    THREE.MathUtils.lerp(nightB, dayB, dayFactor)
-                );
-            }
-        });
+        // Ambient light — use cached reference, no traverse needed
+        if (this._ambientLight) {
+            this._ambientLight.intensity = THREE.MathUtils.lerp(0.15, 0.4, dayFactor);
+            const nightR = 0.15, nightG = 0.18, nightB = 0.35;
+            const dayR = 0.53, dayG = 0.6, dayB = 0.73;
+            this._ambientLight.color.setRGB(
+                THREE.MathUtils.lerp(nightR, dayR, dayFactor),
+                THREE.MathUtils.lerp(nightG, dayG, dayFactor),
+                THREE.MathUtils.lerp(nightB, dayB, dayFactor)
+            );
+        }
 
         // Scene background
         if (this.core.scene.background && this.core.scene.background.isColor) {

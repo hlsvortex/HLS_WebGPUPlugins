@@ -89,18 +89,21 @@ async function init() {
     document.body.appendChild(stats.dom);
 
     // 5. Render Loop
-    const clock = new THREE.Clock();
+    let lastTime = performance.now();
     function animate() {
         requestAnimationFrame(animate);
         stats.update();
-        const dt = clock.getDelta();
+        
+        const now = performance.now();
+        const dt = (now - lastTime) / 1000;
+        lastTime = now;
         
         pluginManager.updateAll(dt);
 
         if (coreDeps.postProcessing) {
-            coreDeps.postProcessing.renderAsync();
+            coreDeps.postProcessing.render();
         } else {
-            renderer.renderAsync(scene, camera);
+            renderer.render(scene, camera);
         }
     }
     animate();

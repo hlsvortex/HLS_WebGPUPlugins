@@ -18,10 +18,11 @@ import { QuadTreeLOD } from './QuadTreeLOD.js';
 import { GraphGenerator } from './GraphGenerator.js';
 
 export class TerrainSystem {
-  constructor(renderer, scene, lightingSystem) {
+  constructor(renderer, scene, lightingSystem, core) {
     this.renderer = renderer;
     this.scene = scene;
     this.lightingSystem = lightingSystem;
+    this.core = core || null;  // Optional: used for cloud shadow uniforms, decal system, etc.
     this.gpuCompute = new GPUCompute(renderer);
     
     this.textureSize = 2048;
@@ -426,6 +427,56 @@ export class TerrainSystem {
     // perfect conformance to GPU-displaced slopes.
     if (this.decalSystem) {
         finalCol = this.decalSystem.getDecalBlendNode(baseWorld, finalCol);
+    }
+
+    // --- CLOUD SHADOW PROJECTION ---
+    // Re-run the exact same FBM noise as SkyPlugin but using world XZ position
+    // instead of view direction. This simulates parallel-ray shadow casting from
+    // a cloud layer overhead. No extra textures or render passes needed!
+    const csu = this.core?.cloudShadowUniforms;
+    if (csu) {
+        // Scale world position by cloud scale / a fixed virtual cloud altitude (1500 world units)
+        // This matches the projection distance used by the sky dome FBM.
+        const cloudAlt = float(1500.0);
+        const csPx = baseWorld.x.div(cloudAlt).mul(csu.scale);
+        const csPy = baseWorld.z.div(cloudAlt).mul(csu.scale);
+
+        const csTime = time.mul(csu.speed);
+        const csCt1 = csTime;
+        const csCt2 = csTime.mul(0.618);
+        const csCt3 = csTime.mul(0.381);
+        const csCt4 = csTime.mul(1.272);
+
+        // Identical 4-octave cross-term FBM as sky dome (must stay in sync!)
+        const csO1a = csPx.add(csPy.mul(0.7)).add(csCt1);
+        const csO1b = csPy.sub(csPx.mul(0.7)).add(csCt1.mul(0.8));
+        const csN1  = sin(csO1a).add(cos(csO1b)).mul(0.5);
+
+        const csO2a = csPx.mul(1.83).add(csPy.mul(1.41)).add(csCt2).add(csN1.mul(2.1));
+        const csO2b = csPy.mul(1.97).sub(csPx.mul(1.23)).add(csCt2.mul(1.3)).sub(csN1.mul(1.7));
+        const csN2  = sin(csO2a).add(cos(csO2b)).mul(0.5);
+
+        const csO3a = csPx.mul(3.71).add(csPy.mul(2.93)).add(csCt3).add(csN2.mul(1.8)).sub(csN1.mul(0.9));
+        const csO3b = csPy.mul(4.13).sub(csPx.mul(3.57)).add(csCt3.mul(1.7)).add(csN1.mul(1.2)).add(csN2.mul(0.7));
+        const csN3  = sin(csO3a).add(cos(csO3b)).mul(0.5);
+
+        const csO4a = csPx.mul(7.23).add(csPy.mul(6.17)).add(csCt4).add(csN3.mul(2.5)).sub(csN2.mul(1.1));
+        const csO4b = csPy.mul(8.31).sub(csPx.mul(7.91)).add(csCt4.mul(0.9)).sub(csN3.mul(1.5)).add(csN1.mul(0.5));
+        const csN4  = sin(csO4a).add(cos(csO4b)).mul(0.5);
+
+        const csFbm  = csN1.mul(0.46).add(csN2.mul(0.28)).add(csN3.mul(0.16)).add(csN4.mul(0.10));
+        const csNoise = csFbm.mul(0.5).add(0.5); // remap → 0..1
+
+        // Same threshold as sky
+        const csThreshold = float(1.0).sub(csu.coverage);
+        const csDensity   = smoothstep(csThreshold, csThreshold.add(csu.softness), csNoise);
+
+        // Only cast shadows above sea level (no cloud shadows on the seabed)
+        const aboveSea = smoothstep(seaLvl.sub(2.0), seaLvl.add(10.0), worldH);
+
+        // Darken the terrain: shadow = 1 - density*strength
+        const shadowMultiplier = float(1.0).sub(csDensity.mul(csu.strength).mul(aboveSea));
+        finalCol = finalCol.mul(shadowMultiplier);
     }
 
     this.material.colorNode = finalCol;

@@ -14,7 +14,7 @@ export class TerrainPlugin {
     async init() {
         const { renderer, scene, lightingSystem, onProgress, EditorConfig } = this.core;
 
-        this.terrainSystem = new TerrainSystem(renderer, scene, lightingSystem);
+        this.terrainSystem = new TerrainSystem(renderer, scene, lightingSystem, this.core);
 
         if (this.core.decalSystem) {
             this.terrainSystem.setDecalSystem(this.core.decalSystem);

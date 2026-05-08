@@ -36,6 +36,8 @@ export class CameraManager extends EventDispatcher {
     tpPitchMax: number = 0.65;
     
     _pivot: THREE.Vector3 = new THREE.Vector3();
+    private _euler: THREE.Euler = new THREE.Euler(0, 0, 0, 'YXZ');
+    private _lookTarget: THREE.Vector3 = new THREE.Vector3();
     
     trauma: number = 0;
     traumaDecay: number = 1.2;
@@ -117,8 +119,8 @@ export class CameraManager extends EventDispatcher {
         } else if (this.mode === 'third_person') {
             this._applyThirdPerson();
         } else if (this.mode === 'free') {
-            const euler = new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ');
-            this.camera.quaternion.setFromEuler(euler);
+            this._euler.set(this.pitch, this.yaw, 0);
+            this.camera.quaternion.setFromEuler(this._euler);
         }
         
         if (this.trauma > 0.001) {
@@ -131,8 +133,8 @@ export class CameraManager extends EventDispatcher {
     }
     
     _applyFPS() {
-        const euler = new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ');
-        this.camera.quaternion.setFromEuler(euler);
+        this._euler.set(this.pitch, this.yaw, 0);
+        this.camera.quaternion.setFromEuler(this._euler);
         
         this.camera.position.set(
             this._pivot.x,
@@ -171,12 +173,12 @@ export class CameraManager extends EventDispatcher {
             this._pivot.z + offsetZ
         );
         
-        const lookAt = new THREE.Vector3(
+        this._lookTarget.set(
             this._pivot.x,
             this._pivot.y + 1.2,
             this._pivot.z
         );
-        this.camera.lookAt(lookAt);
+        this.camera.lookAt(this._lookTarget);
     }
     
     _applyShake() {

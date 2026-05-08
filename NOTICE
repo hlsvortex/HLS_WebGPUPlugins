@@ -1,0 +1,32 @@
+WebGPU Terrain Engine
+Copyright 2025 HLS Vortex
+
+This product includes software developed by HLS Vortex.
+
+---
+
+THIRD-PARTY NOTICES:
+
+This project uses the following open-source libraries:
+
+- Three.js (https://threejs.org/) — MIT License
+  Copyright 2010-2025 Three.js authors
+
+- Delaunator (https://github.com/mapbox/delaunator) — ISC License
+  Copyright 2021 Mapbox
+
+- Vite (https://vite.dev/) — MIT License
+  Copyright 2019-2025 Evan You and Vite contributors
+
+---
+
+INSPIRATIONS & REFERENCES:
+
+- Florian Hoenig (@rianflo) — Graph-based terrain generation workflow
+  https://x.com/rianflo/status/2037606948607299810
+
+- Red Blob Games — Polygonal map generation from Voronoi diagrams
+  https://www.redblobgames.com/maps/terrain-from-noise/
+
+- SimpleWindErosion by @weigert
+  https://github.com/weigert/SimpleWindErosion

@@ -376,7 +376,7 @@ export class GrassPlugin {
         // Apply brightness and saturation
         const luminance = rawColor.x.mul(0.299).add(rawColor.y.mul(0.587)).add(rawColor.z.mul(0.114));
         const grey = vec3(luminance, luminance, luminance);
-        let finalBaseColor = mix(grey, rawColor, this._uSaturation).mul(this._uBrightness);
+        let finalBaseColor: any = mix(grey, rawColor, this._uSaturation).mul(this._uBrightness);
         
         const preRx = hash(instanceIndex.add(1.0));
         const preRz = hash(instanceIndex.add(2.0));
@@ -398,7 +398,7 @@ export class GrassPlugin {
         const gIsRedwood = smoothstep(0.55, 0.5, grassBiomeId).mul(smoothstep(0.45, 0.5, grassBiomeId));
         const gIsSwamp   = smoothstep(0.75, 0.7, grassBiomeId).mul(smoothstep(0.65, 0.7, grassBiomeId));
         
-        let groundTint = groundTintGrassland;
+        let groundTint: any = groundTintGrassland;
         groundTint = mix(groundTint, groundTintJungle, gIsJungle);
         groundTint = mix(groundTint, groundTintPine, gIsPine);
         groundTint = mix(groundTint, groundTintRedwood, gIsRedwood);
@@ -493,10 +493,10 @@ export class GrassPlugin {
         const seaLevelOff = float(this.terrainSystem.seaLevelOffset); // -400
 
         // Scale grass based on base geometry size (width: 0.11, height: 0.85) to hook up the UI sliders
-        const userBladeScale = vec3(this._uBladeWidth.div(0.11), this._uBladeHeight.div(0.85), this._uBladeWidth.div(0.11));
+        const userBladeScale = vec3(this._uBladeWidth.div(float(0.11)), this._uBladeHeight.div(float(0.85)), this._uBladeWidth.div(float(0.11)));
 
         const finalPosNode = rotatedPos
-             .mul(vec3(finalScale, finalScale, finalScale))
+             .mul(finalScale) // finalScale is already a scalar float node, no need to wrap in vec3()
              .mul(userBladeScale)
              .div(vec3(chunkScaleXZ, float(1.0), chunkScaleXZ))
              .add(vec3(localX, hSample.r.mul(hScale).add(seaLevelOff), localZ))
