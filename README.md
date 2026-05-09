@@ -1,16 +1,11 @@
 # 🌍 WebGPU Terrain Engine
-
+Stay up to date with what im doing. Follow me here!
 [![Twitter](https://img.shields.io/twitter/follow/HLS_dev?style=social)](https://twitter.com/HLS_dev)
 [![YouTube](https://img.shields.io/badge/YouTube-@HyperLightGameDev-FF0000?style=flat&logo=youtube&logoColor=white)](https://youtube.com/@HyperLightGameDev)
 [![Website](https://img.shields.io/badge/Website-hyperlightstudios.xyz-0052FF?style=flat&logo=web)](https://hyperlightstudios.xyz)
 [![Vibejam](https://img.shields.io/badge/Created_for-Vibejam_2026-8A2BE2?style=flat)](https://vibej.am/2026/)
 
 ![WebGPU Terrain Engine Screenshot](public/screenshot.png)
-
-Stay up to date with what im doing. Follow me here!
-[![Twitter](https://img.shields.io/twitter/follow/HLS_dev?style=social)](https://twitter.com/HLS_dev)
-[![YouTube](https://img.shields.io/badge/YouTube-@HyperLightGameDev-FF0000?style=flat&logo=youtube&logoColor=white)](https://youtube.com/@HyperLightGameDev)
-[![Website](https://img.shields.io/badge/Website-hyperlightstudios.xyz-0052FF?style=flat&logo=web)](https://hyperlightstudios.xyz)
 
 Originally Created for 2026 #Vibejam https://vibej.am/2026/ 
 
