@@ -10,12 +10,7 @@ const TONE_MAPS = [
     { label: 'None',        value: THREE.NoToneMapping },
 ] as const;
 
-const SHADOW_TYPES = [
-    { label: 'PCF Soft', value: THREE.PCFSoftShadowMap },
-    { label: 'PCF',      value: THREE.PCFShadowMap },
-    { label: 'VSM',      value: THREE.VSMShadowMap },
-    { label: 'Basic',    value: THREE.BasicShadowMap },
-] as const;
+// Removed SHADOW_TYPES from this file, moved to CSMPlugin
 
 export class IBLPlugin {
     core: any;
@@ -78,7 +73,7 @@ export class IBLPlugin {
 
         // Apply initial tone mapping
         renderer.toneMapping = TONE_MAPS[this._toneMapIdx].value;
-        renderer.shadowMap.type = SHADOW_TYPES[this._shadowTypeIdx].value;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
         this.core.iblSystem = this;
         console.log('[IBLPlugin] Initialized with HemisphereLight + fill light');
@@ -203,46 +198,7 @@ export class IBLPlugin {
         });
 
         // ── Shadows ──────────────────────────────────────────────────
-        ui.addSection('IBL', '🌑 Shadows', '#a8f');
-        ui.addToggle('IBL', 'shadowsEnabled', 'Shadows', true, 'Global shadow rendering toggle.', (val: boolean) => {
-            this.core.renderer.shadowMap.enabled = val;
-            if (this.core.lightingSystem?.sunLight) this.core.lightingSystem.sunLight.castShadow = val;
-        });
-        ui.addDropdown('IBL', 'shadowTypeSelect', 'Shadow Type', SHADOW_TYPES as any, 0, 'Select the shadow map algorithm.', (val: any) => {
-            this.core.renderer.shadowMap.type = val;
-            // Force regeneration
-            const sun = this.core.lightingSystem?.sunLight;
-            if (sun?.shadow?.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
-        });
-        ui.addSlider('IBL', 'shadowMapSize', 'Map Size', 512, 8192, 512, 4096, 'Shadow map resolution.', (val: number) => {
-            const sun = this.core.lightingSystem?.sunLight;
-            if (sun) {
-                sun.shadow.mapSize.set(val, val);
-                if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
-            }
-        });
-        ui.addSlider('IBL', 'shadowBias', 'Bias', -0.005, 0.005, 0.0001, 0.0, 'Shadow acne fix.', (val: number) => {
-            const sun = this.core.lightingSystem?.sunLight;
-            if (sun) sun.shadow.bias = val;
-        });
-        ui.addSlider('IBL', 'shadowNear', 'Near Plane', 1, 500, 10, 100, 'Shadow camera near plane.', (val: number) => {
-            const sun = this.core.lightingSystem?.sunLight;
-            if (sun) { sun.shadow.camera.near = val; sun.shadow.camera.updateProjectionMatrix(); }
-        });
-        ui.addSlider('IBL', 'shadowFar', 'Far Plane', 1000, 15000, 500, 5000, 'Shadow camera far plane.', (val: number) => {
-            const sun = this.core.lightingSystem?.sunLight;
-            if (sun) { sun.shadow.camera.far = val; sun.shadow.camera.updateProjectionMatrix(); }
-        });
-        ui.addSlider('IBL', 'shadowExtent', 'Coverage', 200, 4000, 100, 1000, 'Ortho shadow coverage (world units).', (val: number) => {
-            const sun = this.core.lightingSystem?.sunLight;
-            if (sun) {
-                sun.shadow.camera.left   = -val;
-                sun.shadow.camera.right  =  val;
-                sun.shadow.camera.top    =  val;
-                sun.shadow.camera.bottom = -val;
-                sun.shadow.camera.updateProjectionMatrix();
-            }
-        });
+        // Removed: Shadow controls are now fully handled by CSMPlugin.
     }
 
     _bake(horizonColor: THREE.Color, zenithColor: THREE.Color, sunIntensity: number) {

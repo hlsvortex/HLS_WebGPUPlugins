@@ -6,6 +6,7 @@
  */
 
 import heightSrc from '../gpu/height.compute.wgsl?raw';
+import heightBlurSrc from '../gpu/height_blur.compute.wgsl?raw';
 import biomeSrc from '../gpu/biome.compute.wgsl?raw';
 import spawnSrc from '../gpu/spawn.compute.wgsl?raw';
 
@@ -48,9 +49,10 @@ export class GPUCompute {
       0.2,   // densityMountain
       0.4,   // densitySnow
       0.05,  // beachShelfFalloff
-      0.0,   // _pad1
-      0.0,   // _pad2
-      0.0,   // _pad3
+      16.0,  // terraceSteps
+      0.45,  // terraceSoftness
+      0.004, // terraceNoiseAmp
+      0.65,  // terrainBandingFix
     ]);
   }
 
@@ -87,9 +89,19 @@ export class GPUCompute {
     const size = this.textureSize;
     const device = this.device;
 
-    // Height texture — written by height compute, read by biome compute + terrain material
+    // Raw height texture — written by height compute and consumed by the blur pass.
+    this.textures.heightRaw = device.createTexture({
+      label: 'heightmap-raw',
+      size: [size, size],
+      format: 'rgba32float',
+      usage:
+        GPUTextureUsage.STORAGE_BINDING |
+        GPUTextureUsage.TEXTURE_BINDING,
+    });
+
+    // Filtered height texture — read by biome compute, terrain material, spawn logic, and CPU readback.
     this.textures.height = device.createTexture({
-      label: 'heightmap',
+      label: 'heightmap-filtered',
       size: [size, size],
       format: 'rgba32float',
       usage:
@@ -184,10 +196,39 @@ export class GPUCompute {
       label: 'height-bind',
       layout: heightBGL,
       entries: [
-        { binding: 0, resource: this.textures.height.createView() },
+        { binding: 0, resource: this.textures.heightRaw.createView() },
         { binding: 1, resource: this.textures.riverMap.createView() },
         { binding: 2, resource: this.sampler },
         { binding: 3, resource: { buffer: this.settingsBuffer } },
+      ],
+    });
+
+    // --- HEIGHT BLUR pipeline ---
+    const heightBlurBGL = device.createBindGroupLayout({
+      label: 'height-blur-bgl',
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float', viewDimension: '2d' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba32float', viewDimension: '2d' } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+      ],
+    });
+
+    this.pipelines.heightBlur = device.createComputePipeline({
+      label: 'height-blur-pipeline',
+      layout: device.createPipelineLayout({ bindGroupLayouts: [heightBlurBGL] }),
+      compute: {
+        module: device.createShaderModule({ label: 'height-blur-shader', code: heightBlurSrc }),
+        entryPoint: 'main',
+      },
+    });
+
+    this.pipelines.heightBlurBindGroup = device.createBindGroup({
+      label: 'height-blur-bind',
+      layout: heightBlurBGL,
+      entries: [
+        { binding: 0, resource: this.textures.heightRaw.createView() },
+        { binding: 1, resource: this.textures.height.createView() },
+        { binding: 2, resource: { buffer: this.settingsBuffer } },
       ],
     });
 
@@ -267,21 +308,28 @@ export class GPUCompute {
     const encoder = device.createCommandEncoder({ label: 'compute-encoder' });
     const workgroups = Math.ceil(this.textureSize / 8);
 
-    // Pass 1: Height
+    // Pass 1: Raw height
     const heightPass = encoder.beginComputePass({ label: 'height-pass' });
     heightPass.setPipeline(this.pipelines.height);
     heightPass.setBindGroup(0, this.pipelines.heightBindGroup);
     heightPass.dispatchWorkgroups(workgroups, workgroups);
     heightPass.end();
 
-    // Pass 2: Biome (reads height)
+    // Pass 2: Edge-aware height blur (writes final height texture)
+    const heightBlurPass = encoder.beginComputePass({ label: 'height-blur-pass' });
+    heightBlurPass.setPipeline(this.pipelines.heightBlur);
+    heightBlurPass.setBindGroup(0, this.pipelines.heightBlurBindGroup);
+    heightBlurPass.dispatchWorkgroups(workgroups, workgroups);
+    heightBlurPass.end();
+
+    // Pass 3: Biome (reads filtered height)
     const biomePass = encoder.beginComputePass({ label: 'biome-pass' });
     biomePass.setPipeline(this.pipelines.biome);
     biomePass.setBindGroup(0, this.pipelines.biomeBindGroup);
     biomePass.dispatchWorkgroups(workgroups, workgroups);
     biomePass.end();
 
-    // Pass 3: Spawn (reads biome)
+    // Pass 4: Spawn (reads biome)
     const spawnPass = encoder.beginComputePass({ label: 'spawn-pass' });
     spawnPass.setPipeline(this.pipelines.spawn);
     spawnPass.setBindGroup(0, this.pipelines.spawnBindGroup);
@@ -290,7 +338,7 @@ export class GPUCompute {
 
     device.queue.submit([encoder.finish()]);
 
-    console.log('[GPUCompute] Dispatched height → biome → spawn');
+    console.log('[GPUCompute] Dispatched height → blur → biome → spawn');
   }
 
   /**
@@ -317,12 +365,14 @@ export class GPUCompute {
     );
     device.queue.submit([encoder.finish()]);
 
-    await readBuffer.mapAsync(GPUMapMode.READ);
-    const data = new Float32Array(readBuffer.getMappedRange().slice(0));
-    readBuffer.unmap();
-    readBuffer.destroy();
-
-    return data;
+    try {
+      await readBuffer.mapAsync(GPUMapMode.READ);
+      const data = new Float32Array(readBuffer.getMappedRange().slice(0));
+      readBuffer.unmap();
+      return data;
+    } finally {
+      readBuffer.destroy();
+    }
   }
 
   /**
@@ -358,6 +408,10 @@ export class GPUCompute {
     this.terrainSettings[25] = config.densityMountain ?? 0.2;
     this.terrainSettings[26] = config.densitySnow ?? 0.4;
     this.terrainSettings[27] = config.beachShelfFalloff ?? 0.05;
+    this.terrainSettings[28] = config.terraceSteps ?? 16.0;
+    this.terrainSettings[29] = config.terraceSoftness ?? 0.45;
+    this.terrainSettings[30] = config.terraceNoiseAmp ?? 0.004;
+    this.terrainSettings[31] = config.terrainBandingFix ?? 0.65;
     this.device.queue.writeBuffer(this.settingsBuffer, 0, this.terrainSettings);
   }
 }

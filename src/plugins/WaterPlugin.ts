@@ -167,7 +167,10 @@ export class WaterPlugin {
       const waterMat = new THREE.MeshStandardNodeMaterial({
           transparent: true,
           depthWrite: false,
-          side: THREE.DoubleSide
+          side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: 1,
+          polygonOffsetUnits: 1
       });
 
       waterMat.roughnessNode = this._uRoughness;
@@ -246,6 +249,7 @@ export class WaterPlugin {
       
       this.waterMesh = new THREE.Mesh(waterGeo, waterMat);
       this.waterMesh.position.set(0, 0, 0);
+      this.waterMesh.renderOrder = -500; // After sky (-1000), before opaque (0)
       this.waterMesh.frustumCulled = false;
       this.core.scene.add(this.waterMesh);
     }

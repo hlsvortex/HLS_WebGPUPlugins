@@ -29,6 +29,11 @@ export class TerrainSystem {
     this.heightScale = 1200;     // ARK total vertical range (Y -400 ocean → Y 800 peaks)
     this.seaLevelOffset = -400;  // Applied in vertex shader: h*1200-400 → sea level at Y 0
     this.terrainSize = 8000;
+    this.normalRadiusUniform = uniform(float(4.0));
+    this.shadowCasterBlurUniform = uniform(float(0.0));
+    this.softShadowStrengthUniform = uniform(float(0.35));
+    this.softShadowColorUniform = uniform(new THREE.Color(0.016, 0.071, 0.082));
+    this.sunDirectionUniform = uniform(new THREE.Vector3(-0.4, -0.7, -0.4).normalize());
     
     // Live fluid tracking hook
     this.playerPosUniform = uniform(new THREE.Vector3());
@@ -40,6 +45,8 @@ export class TerrainSystem {
     this.causticsMap.wrapT = THREE.RepeatWrapping;
     
     this.ready = false;
+    this._liveUpdateInFlight = false;
+    this._pendingLiveConfig = null;
   }
 
   async init(onProgress, config = {}) {
@@ -95,28 +102,48 @@ export class TerrainSystem {
   async updateGPULive(config) {
     if (!this.gpuCompute || !this.gpuCompute.ready) return;
 
-    // 1. Update uniforms and run compute
-    this.gpuCompute.updateSettings(config);
-    this.gpuCompute.dispatch();
+    this._pendingLiveConfig = { ...config };
+    if (this._liveUpdateInFlight) return;
 
-    // 2. Read back new textures
-    this.cachedHeightData = await this.gpuCompute.readbackTexture('height');
-    this.cachedBiomeData = await this.gpuCompute.readbackTexture('biome');
+    this._liveUpdateInFlight = true;
+    try {
+      while (this._pendingLiveConfig) {
+        const nextConfig = this._pendingLiveConfig;
+        this._pendingLiveConfig = null;
 
-    // 3. Hot-swap the Three.js DataTexture buffers
-    if (this.heightDataTex && this.heightDataTex.image) {
-      this.heightDataTex.image.data = this.cachedHeightData;
-      this.heightDataTex.needsUpdate = true;
-    }
-    
-    if (this.biomeDataTex && this.biomeDataTex.image) {
-      this.biomeDataTex.image.data = this.cachedBiomeData;
-      this.biomeDataTex.needsUpdate = true;
-    }
-    
-    // Fire decoupled callback so external systems (like SpawnSystem) can react to terrain height changes
-    if (this.onTerrainUpdated) {
-        this.onTerrainUpdated(this.cachedHeightData, this.terrainSize, this.heightScale);
+        // 1. Update uniforms and run compute
+        this.gpuCompute.updateSettings(nextConfig);
+        this.gpuCompute.dispatch();
+
+        // 2. Read back new textures. This is expensive at 2048² RGBA32F, so keep
+        // it strictly single-flight while slider input is being dragged.
+        const nextHeightData = await this.gpuCompute.readbackTexture('height');
+        const nextBiomeData = await this.gpuCompute.readbackTexture('biome');
+
+        this.cachedHeightData = nextHeightData;
+        this.cachedBiomeData = nextBiomeData;
+
+        // 3. Hot-swap the Three.js DataTexture buffers
+        if (this.heightDataTex && this.heightDataTex.image) {
+          this.heightDataTex.image.data = this.cachedHeightData;
+          this.heightDataTex.needsUpdate = true;
+        }
+        
+        if (this.biomeDataTex && this.biomeDataTex.image) {
+          this.biomeDataTex.image.data = this.cachedBiomeData;
+          this.biomeDataTex.needsUpdate = true;
+        }
+        
+        // Fire decoupled callback so external systems (like SpawnSystem) can react to terrain height changes
+        if (this.onTerrainUpdated) {
+            this.onTerrainUpdated(this.cachedHeightData, this.terrainSize, this.heightScale);
+        }
+      }
+    } catch (err) {
+      this._pendingLiveConfig = null;
+      console.warn('[TerrainSystem] Live GPU terrain update failed; keeping previous textures.', err);
+    } finally {
+      this._liveUpdateInFlight = false;
     }
   }
 
@@ -218,20 +245,38 @@ export class TerrainSystem {
 
     // Displace vertex ONLY along local Y.
     // h*1200 - 400 → deep ocean (h=0) = Y -400, sea level (h=0.333) = Y 0, peaks (h=1.0) = Y 800
-    this.material.positionNode = positionLocal.add(vec3(0.0, h.mul(hScale).add(hOffset), 0.0));
+    const displacedLocal = positionLocal.add(vec3(0.0, h.mul(hScale).add(hOffset), 0.0));
+    this.material.positionNode = displacedLocal;
 
-    // Compute analytical normals by sampling neighbors via TSL
-    const offset = float(1.0 / this.textureSize);
+    // The physical shadow map uses a smoothed caster height. This preserves real
+    // terrain self-shadows but stops sub-texel height steps from becoming comb lines.
+    const casterOffset = this.shadowCasterBlurUniform.mul(1.0 / this.textureSize);
+    const casterH = h.mul(4.0)
+      .add(texture(heightTex, uv.add(vec2(casterOffset.negate(), 0.0))).r.mul(2.0))
+      .add(texture(heightTex, uv.add(vec2(casterOffset, 0.0))).r.mul(2.0))
+      .add(texture(heightTex, uv.add(vec2(0.0, casterOffset.negate()))).r.mul(2.0))
+      .add(texture(heightTex, uv.add(vec2(0.0, casterOffset))).r.mul(2.0))
+      .add(texture(heightTex, uv.add(vec2(casterOffset.negate(), casterOffset.negate()))).r)
+      .add(texture(heightTex, uv.add(vec2(casterOffset, casterOffset.negate()))).r)
+      .add(texture(heightTex, uv.add(vec2(casterOffset.negate(), casterOffset))).r)
+      .add(texture(heightTex, uv.add(vec2(casterOffset, casterOffset))).r)
+      .mul(1.0 / 16.0);
+    this.material.castShadowPositionNode = positionLocal.add(vec3(0.0, casterH.mul(hScale).add(hOffset), 0.0));
+
+    // Compute lighting normals over a slightly wider footprint than displacement.
+    // This keeps cliffs sharp in silhouette while preventing one-texel height steps
+    // from turning into visible light bands on steep terrain.
+    const normalRadius = this.normalRadiusUniform;
+    const offset = normalRadius.mul(1.0 / this.textureSize);
     const hL = texture(heightTex, uv.add(vec2(offset.negate(), 0.0))).r;
     const hR = texture(heightTex, uv.add(vec2(offset, 0.0))).r;
     const hD = texture(heightTex, uv.add(vec2(0.0, offset.negate()))).r;
     const hU = texture(heightTex, uv.add(vec2(0.0, offset))).r;
 
-    const texelWorldSize = tSize.div(float(this.textureSize));
-    // Normal calc uses same hScale (offset cancels in subtraction)
+    const normalSampleWorldSize = tSize.mul(2.0 / this.textureSize).mul(normalRadius);
     const normalVec = vec3(
         hL.sub(hR).mul(hScale),
-        texelWorldSize.mul(2.0),
+        normalSampleWorldSize,
         hD.sub(hU).mul(hScale)
     ).normalize();
 
@@ -277,9 +322,9 @@ export class TerrainSystem {
     const normalY = abs(normalVec.y);
     const steepness = float(1.0).sub(normalY);
 
-    // Broad, sweeping, clean low-frequency noise for subtle organic color variety (no Moiré!)
-    // Single octave with combined X+Y phase — visually identical to dual-octave at half the GPU cost
-    const organicSweep = sin(uv.x.mul(800.0).add(uv.y.mul(530.0))).mul(0.5).add(0.5);
+    // Keep color variation non-periodic. Previous diagonal sine waves created visible
+    // terrain bands even when height terracing and shadows were disabled.
+    const organicSweep = clamp(vegD.mul(0.35).add(rockD.mul(0.35)).add(sandD.mul(0.2)).add(float(0.35)), 0.0, 1.0);
     
 
     // --- BRIGHTENED STYLIZED PALETTE (greens boosted 40-60%) ---
@@ -305,9 +350,8 @@ export class TerrainSystem {
     const pForestLight = color(0.20, 0.48, 0.14);
     const pForestDark  = color(0.14, 0.38, 0.10);
     
-    // Rocks
-    // Apply soft, organic color shifts directly into the Rock formulas
-    const cliffBands = sin(h.mul(400.0).add(organicSweep)).mul(0.5).add(0.5);
+    // Rocks. Avoid height-periodic contour coloring; it reads as banding on slopes.
+    const cliffBands = smoothstep(float(0.15), float(0.85), rockD.add(steepness.mul(0.35)));
     const pRockLight = color(0.58, 0.54, 0.48);
     const pRockMid = mix(color(0.48, 0.44, 0.38), color(0.40, 0.36, 0.30), smoothstep(float(0.4), float(0.8), cliffBands));
     const pRockDark = mix(color(0.36, 0.34, 0.28), color(0.28, 0.26, 0.22), smoothstep(float(0.4), float(0.8), cliffBands));
@@ -479,6 +523,13 @@ export class TerrainSystem {
         finalCol = finalCol.mul(shadowMultiplier);
     }
 
+    // Stylized terrain self-shade. This replaces noisy terrain-on-terrain CSM with
+    // one smooth color ramp, while CSM remains available for objects and foliage.
+    const sunToSurface = this.sunDirectionUniform.negate().normalize();
+    const sunFacing = dot(normalVec, sunToSurface).clamp(0.0, 1.0);
+    const softTerrainShadow = smoothstep(float(0.18), float(0.82), float(1.0).sub(sunFacing).mul(0.75).add(steepness.mul(0.45)));
+    finalCol = mix(finalCol, vec3(this.softShadowColorUniform), softTerrainShadow.mul(this.softShadowStrengthUniform));
+
     this.material.colorNode = finalCol;
   }
 
@@ -639,6 +690,10 @@ export class TerrainSystem {
 
   update(cameraPos, deltaTime) {
     if (!this.ready || !this.lod) return;
+    const sun = this.lightingSystem?.sunLight;
+    if (sun) {
+      this.sunDirectionUniform.value.subVectors(sun.target.position, sun.position).normalize();
+    }
     this.lod.update(cameraPos);
 
   }

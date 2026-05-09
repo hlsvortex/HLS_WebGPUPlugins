@@ -651,15 +651,19 @@ export class SkyPlugin {
                 lightAzimuth = (azimuth + Math.PI) % (Math.PI * 2);
             }
 
-            // Convert spherical to cartesian. 
-            // lightElevation is already sin(phi), so cos(phi) = sqrt(1 - sin(phi)^2)
-            const radius = Math.sqrt(Math.max(0, 1.0 - lightElevation * lightElevation)) * dist;
+            // Match the sky shader's signed sun direction exactly. Using
+            // sqrt(1 - elevation^2) here mirrored the light direction after noon.
+            const signedHorizonRadius = Math.cos(((tod - 6) / 12 * Math.PI)) * dist;
             
+            // The sun rotates globally around the origin.
+            // CSMPlugin natively handles snapping the shadow frustums to the camera.
             sun.position.set(
-                Math.cos(lightAzimuth) * radius,
-                Math.max(lightElevation, 0.05) * dist, // Keep it slightly above horizon to avoid shadow acne
-                Math.sin(lightAzimuth) * radius
+                Math.cos(lightAzimuth) * signedHorizonRadius,
+                Math.max(lightElevation, 0.05) * dist,
+                Math.sin(lightAzimuth) * signedHorizonRadius
             );
+            sun.target.position.set(0, 0, 0);
+            sun.target.updateMatrixWorld();
 
             // Day factor for blending
             const dayFactor = Math.max(0, Math.min(1, (elevation + 0.1) / 0.25));

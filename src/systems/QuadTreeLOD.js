@@ -75,7 +75,6 @@ class QuadNode {
       this.lodSystem.releaseMesh(this.mesh);
       this.mesh = null;
     }
-
     if (this.chunkData) {
       if (this.lodSystem.onChunkDestroyed) this.lodSystem.onChunkDestroyed(this.chunkData);
       this.chunkData = null;
@@ -104,9 +103,9 @@ class QuadNode {
     this.mesh = this.lodSystem.claimMesh();
     this.mesh.position.set(this.x, 0, this.z);
     this.mesh.scale.set(this.size, 1, this.size);
-    // Only cast shadows from nearby high-detail chunks (depth >= 4, size <= 500m)
-    // Massive distant chunks are too far for visible shadow detail and kill perf
-    this.mesh.castShadow = (this.depth >= 4); // Chunks <= 500m cast shadows
+    this.mesh.userData.lodDepth = this.depth;
+    this.mesh.receiveShadow = this.lodSystem.receiveShadows;
+    this.mesh.castShadow = this.lodSystem.castShadows && this.depth >= this.lodSystem.shadowMinDepth;
     this.mesh.updateMatrixWorld();
   }
 
@@ -146,6 +145,10 @@ export class QuadTreeLOD {
     
     this.meshPool = [];
     this.activeMeshes = [];
+    this.receiveShadows = true;
+    this.castShadows = true;
+    // Terrain self-shadows stay physical; the material smooths only caster depth.
+    this.shadowMinDepth = 0;
     
     // Shared geometry for ALL chunks (1x1 unit size, scaled by nodes)
     this._buildGeometry();
@@ -210,8 +213,9 @@ export class QuadTreeLOD {
 
     // Create new mesh if pool is empty
     const mesh = new THREE.Mesh(this.baseGeometry, this.material);
-    mesh.receiveShadow = true;
-    mesh.castShadow = true; // High res chunks cast shadows
+    mesh.userData.lodDepth = 0;
+    mesh.receiveShadow = this.receiveShadows;
+    mesh.castShadow = false;
     mesh.frustumCulled = true;
     
     this.scene.add(mesh);

@@ -31,9 +31,10 @@ struct TerrainSettings {
   densityMountain: f32,
   densitySnow: f32,
   beachShelfFalloff: f32,
-  _pad1: f32,
-  _pad2: f32,
-  _pad3: f32,
+  terraceSteps: f32,
+  terraceSoftness: f32,
+  terraceNoiseAmp: f32,
+  terrainBandingFix: f32,
 };
 
 fn hash(p: vec2<f32>) -> f32 {
@@ -180,13 +181,15 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   
   // STRATA TERRACING (controlled by settings.terracingStrength, 0 = off)
   if (settings.terracingStrength > 0.01) {
-      let terraceNoise = fbm(uv * 12.0, 3) * 0.01;
+      let terraceNoise = fbm(uv * 12.0, 3) * settings.terraceNoiseAmp;
       let tBase = baseH + terraceNoise;
-      let terraceSteps = 12.0; 
+      let terraceSteps = max(2.0, settings.terraceSteps);
       let t = tBase * terraceSteps;
       let tFloor = floor(t);
       let tFract = fract(t);
-      let terracedH = (tFloor + smoothstep(0.3, 0.8, tFract)) / terraceSteps;
+      let terraceHalfWidth = clamp(settings.terraceSoftness, 0.02, 0.5);
+      let terraceBlend = smoothstep(0.5 - terraceHalfWidth, 0.5 + terraceHalfWidth, tFract);
+      let terracedH = (tFloor + terraceBlend) / terraceSteps;
       let terraceMask = smoothstep(0.35, 0.75, baseH);
       baseH = mix(baseH, terracedH, terraceMask * settings.terracingStrength);
   }

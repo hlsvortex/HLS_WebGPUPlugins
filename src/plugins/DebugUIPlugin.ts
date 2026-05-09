@@ -37,6 +37,10 @@ export class DebugUIPlugin {
     _activePlugin: string | null;
     _regenerateCallbacks: Set<(params: any) => void>;
     _styles: HTMLStyleElement | null;
+    _busyOverlay: HTMLDivElement | null;
+    _busyText: HTMLDivElement | null;
+    _busyCount: number;
+    _defaultParams: Record<string, any>;
 
     constructor() {
         this.params = {
@@ -47,8 +51,12 @@ export class DebugUIPlugin {
             "sunPosY": 2000,
             "sunPosZ": 1000,
             "shadowsEnabled": 1,
-            "shadowMapSize": 8192,
-            "shadowBias": 0.005,
+            "shadowMapSize": 3584,
+            "shadowBias": -0.00002,
+            "shadowNormalBias": 0.05,
+            "shadowRadius": 7.5,
+            "shadowBlurSamples": 12,
+            "shadowIntensity": 0.6,
             "shadowNear": 491,
             "shadowFar": 10500,
             "shadowExtent": 4000,
@@ -81,20 +89,28 @@ export class DebugUIPlugin {
             "snowThreshold": 0.62,
             "mountainThreshold": 0.7,
             "moistureThreshold": 0.65,
-            "terracingStrength": 0.75,
+            "terracingStrength": 0.2,
             "blurRadius": 4,
-            "detailAmp": 3,
-            "cliffStrength": 3,
-            "riverCarving": 2,
+            "detailAmp": 0.8,
+            "cliffStrength": 0.4,
+            "riverCarving": 0.6,
             "riverFalloff": 0.5,
             "underwaterSuppress": 1,
+            "terraceSteps": 16,
+            "terraceSoftness": 0.45,
+            "terraceNoiseAmp": 0.004,
+            "terrainBandingFix": 0.8,
             "maxDepth": 8,
             "lodSplitMultiplier": 3,
             "chunkSegments": 24,
             "heightScale": 1200,
             "terrainSize": 8000,
+            "terrainShadowMinDepth": 0,
             "terrainReceiveShadows": 1,
             "terrainCastShadows": 1,
+            "terrainShadowCasterBlur": 0,
+            "terrainSoftShadowStrength": 0.35,
+            "terrainSoftShadowColor": "#041215",
             "waterLevelY": -3,
             "waveSpeed": 1.8,
             "wavePrimaryAmp": 0.15,
@@ -106,7 +122,7 @@ export class DebugUIPlugin {
             "waterFresnelStrength": 0.35,
             "waterFoamIntensity": 1.2,
             "waterMeshRes": 512,
-            "fogDensity": 0.00015,
+            "fogDensity": 0.00013,
             "grassViewNear": 250,
             "grassViewFar": 630,
             "grassBladeWidth": 0.04,
@@ -117,7 +133,9 @@ export class DebugUIPlugin {
             "grassRootStraw": "#1e6b2b",
             "grassTipStraw": "#ffffff",
             "grassStrawBlend": 0.05,
-            "grassBrightness": 1.7,
+            "grassStrawVariation": 1,
+            "grassTintVariation": 1,
+            "grassBrightness": 0.95,
             "grassSaturation": 1.05,
             "grassGroundBlend": 1,
             "grassWindSpeed": 1.1,
@@ -158,9 +176,9 @@ export class DebugUIPlugin {
             "maxOpacity": 1,
             "fogBaseHeight": 80,
             "fogFalloff": 0.00001,
-            "noiseStrength": 0.2,
+            "noiseStrength": 0.5,
             "noiseSpeed": 0.6,
-            "noiseScale": 0.0089,
+            "noiseScale": 0.0039,
             "fogColorR": 0.58,
             "fogColorG": 0.74,
             "fogColorB": 0.87,
@@ -175,7 +193,14 @@ export class DebugUIPlugin {
             "hemiIntensity": 0.6,
             "hemiSkyColor": "#8ba4d4",
             "hemiGroundColor": "#4a3828",
-            "shadowTypeSelect": 0,
+            "shadowTypeSelect": 1,
+            "csmCascades": 3,
+            "csmMode": 0,
+            "csmFade": 0,
+            "csmStableFilter": 1,
+            "csmLightMargin": 200,
+            "csmMaxFar": 8000,
+            "csmMapSize": 3584,
             "cloudCoverage": 0.54,
             "cloudSoftness": 0.5,
             "cloudScale": 1.25,
@@ -209,6 +234,7 @@ export class DebugUIPlugin {
             "filmGrain": 0.01,
             "_enabled_Grass": 1
         };
+        this._defaultParams = { ...this.params };
         this._visible = false;
         this._root = null;
         this._sidebar = null;
@@ -221,12 +247,16 @@ export class DebugUIPlugin {
         this._activePlugin = null;
         this._regenerateCallbacks = new Set();
         this._styles = null;
+        this._busyOverlay = null;
+        this._busyText = null;
+        this._busyCount = 0;
     }
 
     async init() {
         this._loadSettings();
         this._injectStyles();
         this._buildLayout();
+        this._buildBusyOverlay();
         this._bindToggle();
         
         this.core.debugUI = this;
@@ -245,6 +275,19 @@ export class DebugUIPlugin {
     /** Register a callback to fire when the user hits Regenerate */
     onRegenerate(callback: (params: any) => void) {
         this._regenerateCallbacks.add(callback);
+    }
+
+    beginBusy(message = 'Working...') {
+        this._busyCount++;
+        if (this._busyText) this._busyText.textContent = message;
+        if (this._busyOverlay) this._busyOverlay.style.display = 'flex';
+    }
+
+    endBusy() {
+        this._busyCount = Math.max(0, this._busyCount - 1);
+        if (this._busyCount === 0 && this._busyOverlay) {
+            this._busyOverlay.style.display = 'none';
+        }
     }
 
     /** Register a plugin — creates its sidebar tab and content container */
@@ -610,9 +653,67 @@ export class DebugUIPlugin {
 
     // ─── Panel Construction ───────────────────────────────────────
 
+    _buildBusyOverlay() {
+        const overlay = document.createElement('div');
+        overlay.id = 'pm-busy-overlay';
+        overlay.style.display = 'none';
+
+        const card = document.createElement('div');
+        card.id = 'pm-busy-card';
+
+        const spinner = document.createElement('div');
+        spinner.id = 'pm-busy-spinner';
+
+        const text = document.createElement('div');
+        text.id = 'pm-busy-text';
+        text.textContent = 'Working...';
+
+        card.appendChild(spinner);
+        card.appendChild(text);
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+
+        this._busyOverlay = overlay;
+        this._busyText = text;
+    }
+
     _injectStyles() {
         const style = document.createElement('style');
         style.textContent = `
+            #pm-busy-overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 100000;
+                align-items: center;
+                justify-content: center;
+                pointer-events: none;
+                background: rgba(0,0,0,0.08);
+            }
+            #pm-busy-card {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px 16px;
+                border-radius: 10px;
+                border: 1px solid rgba(120,180,255,0.25);
+                background: rgba(10,14,22,0.88);
+                color: #dcecff;
+                font: 13px 'Segoe UI', system-ui, sans-serif;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+                backdrop-filter: blur(10px);
+            }
+            #pm-busy-spinner {
+                width: 18px;
+                height: 18px;
+                border-radius: 50%;
+                border: 2px solid rgba(160,210,255,0.25);
+                border-top-color: #9fd2ff;
+                animation: pm-spin 0.85s linear infinite;
+            }
+            @keyframes pm-spin {
+                to { transform: rotate(360deg); }
+            }
+
             /* ── Root container ────────────────────────────────── */
             #pm-root {
                 position: fixed; top: 10px; left: 10px; z-index: 99999;
@@ -855,9 +956,24 @@ export class DebugUIPlugin {
             console.log('[PluginManager] Settings exported:\n', json);
         });
 
+        const btnReset = document.createElement('button');
+        btnReset.textContent = '↩ Defaults';
+        btnReset.className = 'pm-fbtn pm-fbtn--reset';
+        btnReset.title = 'Clear saved debug settings and reload with code defaults.';
+        btnReset.addEventListener('click', () => {
+            try {
+                localStorage.removeItem(STORAGE_KEY);
+            } catch (e) {
+                console.warn('[DebugUIPlugin] Failed to clear saved settings:', e);
+            }
+            Object.assign(this.params, this._defaultParams);
+            window.location.reload();
+        });
+
         footer.appendChild(btnRegen);
         footer.appendChild(btnSave);
         footer.appendChild(btnExport);
+        footer.appendChild(btnReset);
         detail.appendChild(footer);
 
         root.appendChild(detail);

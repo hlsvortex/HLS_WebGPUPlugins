@@ -5,10 +5,12 @@ export class TerrainPlugin {
     core: any;
     terrainSystem: any;
     _chunksReadout: HTMLSpanElement | null;
+    _liveUpdateTimer: number | null;
 
     constructor() {
         this.terrainSystem = null;
         this._chunksReadout = null;
+        this._liveUpdateTimer = null;
     }
 
     async init() {
@@ -52,10 +54,16 @@ export class TerrainPlugin {
         });
 
         ui.onRegenerate((params: any) => {
-            this.terrainSystem.updateGPULive(params);
+            this._runTerrainBusy('Regenerating terrain...', () => this.terrainSystem.updateGPULive(params));
         });
 
-        const onChangeLive = () => { this.terrainSystem.updateGPULive(ui.params); };
+        const onChangeLive = () => {
+            if (this._liveUpdateTimer !== null) window.clearTimeout(this._liveUpdateTimer);
+            this._liveUpdateTimer = window.setTimeout(() => {
+                this._liveUpdateTimer = null;
+                this._runTerrainBusy('Updating terrain...', () => this.terrainSystem.updateGPULive(ui.params));
+            }, 120);
+        };
 
         // ── World Generation ──
         ui.addSection('Terrain', '🌍 World Generation', '#4fa');
@@ -72,7 +80,7 @@ export class TerrainPlugin {
         ui.addText('Terrain', 'rivermapUrl', 'Rivermap URL', './heightmap_rivers.png', 'Path to river map', null);
         ui.addButton('Terrain', 'Rebuild World', () => {
             console.log('[TerrainPlugin] Triggering full graph rebuild...');
-            this.terrainSystem.rebuildGraph(ui.params);
+            this._runTerrainBusy('Rebuilding world graph...', () => this.terrainSystem.rebuildGraph(ui.params));
         });
 
         // ── Height Formula ──
@@ -96,12 +104,19 @@ export class TerrainPlugin {
         // ── GPU Compute ──
         ui.addSection('Terrain', '⛰️ GPU Compute', '#f66');
         ui.addSlider('Terrain', 'terracingStrength', 'Terracing', 0.0, 1.0, 0.05, 0.2, 'Flat, stepped plateaus. 0 = off.', onChangeLive);
+        ui.addSlider('Terrain', 'terraceSteps', 'Terrace Steps', 2, 48, 1, 16, 'Higher values make finer, less shadow-prone terrace bands.', onChangeLive);
+        ui.addSlider('Terrain', 'terraceSoftness', 'Terrace Softness', 0.02, 0.50, 0.01, 0.45, 'Widens transitions between terraces to reduce self-shadow striping.', onChangeLive);
+        ui.addSlider('Terrain', 'terraceNoiseAmp', 'Terrace Noise', 0.0, 0.02, 0.001, 0.004, 'Height noise applied before terracing. Lower reduces noisy shadow chatter.', onChangeLive);
+        ui.addSlider('Terrain', 'terrainBandingFix', 'Height Blur', 0.0, 1.0, 0.05, 0.8, 'Post-process height smoothing. High values intentionally smooth terrace/contour artifacts instead of preserving every cliff edge.', onChangeLive);
         ui.addSlider('Terrain', 'blurRadius', 'Blur Radius', 0, 4, 1, 3, 'Heightmap smoothing passes.', onChangeLive);
         ui.addSlider('Terrain', 'detailAmp', 'Detail Amp', 0.0, 3.0, 0.1, 0.8, 'Medium/high-freq ground noise.', onChangeLive);
         ui.addSlider('Terrain', 'cliffStrength', 'Cliff Noise', 0.0, 3.0, 0.1, 0.4, 'Jagged mountain ridge strength.', onChangeLive);
         ui.addSlider('Terrain', 'riverCarving', 'River Carving', 0.0, 2.0, 0.1, 0.6, 'River trench depth.', onChangeLive);
         ui.addSlider('Terrain', 'riverFalloff', 'River Falloff', 0.05, 0.50, 0.01, 0.35, 'River bank smoothness.', onChangeLive);
         ui.addSlider('Terrain', 'underwaterSuppress', 'UW Suppress', 0.0, 1.0, 0.1, 1.0, 'Suppress underwater noise.', onChangeLive);
+        ui.addSlider('Terrain', 'terrainNormalRadius', 'Normal Smoothing', 1.0, 12.0, 0.5, 4.0, 'Blurs terrain lighting normals without changing terrain shape. Higher values reduce light bands on steep slopes.', (val: number) => {
+            if (this.terrainSystem?.normalRadiusUniform) this.terrainSystem.normalRadiusUniform.value = val;
+        });
 
         // ── Mesh & LOD Performance ──
         ui.addSection('Terrain', '⚙️ Mesh & LOD', '#88f');
@@ -119,18 +134,39 @@ export class TerrainPlugin {
         });
         ui.addSlider('Terrain', 'heightScale', 'Height Scale', 100, 2000, 50, 1200, 'Vertical range (baked at startup, requires regenerate).', (_val: number) => {});
         ui.addSlider('Terrain', 'terrainSize', 'Terrain Size', 2000, 16000, 500, 8000, 'World size in meters (requires regenerate).', (_val: number) => {});
-
+        ui.addSlider('Terrain', 'terrainSoftShadowStrength', 'Soft Shadow Strength', 0.0, 0.9, 0.05, 0.35, 'Stylized smooth terrain self-shade. Use this instead of terrain CSM casting to avoid banding.', (val: number) => {
+            if (this.terrainSystem?.softShadowStrengthUniform) this.terrainSystem.softShadowStrengthUniform.value = val;
+        });
+        ui.addColor('Terrain', 'terrainSoftShadowColor', 'Soft Shadow Color', '#041215', 'Tint used by the smooth terrain shadow replacement.', (hex: string) => {
+            if (this.terrainSystem?.softShadowColorUniform) this.terrainSystem.softShadowColorUniform.value.set(hex);
+        });
+        ui.addSlider('Terrain', 'terrainShadowCasterBlur', 'Shadow Caster Blur', 0.0, 24.0, 1.0, 0.0, 'Blurs only the terrain height used to cast physical shadows. Higher values reduce self-shadow bands without changing visible geometry.', (val: number) => {
+            if (this.terrainSystem?.shadowCasterBlurUniform) this.terrainSystem.shadowCasterBlurUniform.value = val;
+        });
+        ui.addSlider('Terrain', 'terrainShadowMinDepth', 'Shadow Caster LOD', 0, 8, 1, 0, 'Minimum visible terrain LOD depth allowed to cast shadows. Keep 0 for complete physical terrain self-shadows.', (val: number) => {
+            const lod = this.terrainSystem?.lod;
+            if (lod) {
+                lod.shadowMinDepth = val;
+                for (const m of lod.activeMeshes) {
+                    if (m) m.castShadow = lod.castShadows && (m.userData?.lodDepth ?? 0) >= lod.shadowMinDepth;
+                }
+            }
+        });
         ui.addToggle('Terrain', 'terrainReceiveShadows', 'Receive Shadows', true, 'Terrain chunks receive shadows from the sun.', (val: boolean) => {
-            if (this.terrainSystem?.lod?.activeMeshes) {
-                for (const m of this.terrainSystem.lod.activeMeshes) {
+            const lod = this.terrainSystem?.lod;
+            if (lod) {
+                lod.receiveShadows = val;
+                for (const m of lod.activeMeshes) {
                     if (m) m.receiveShadow = val;
                 }
             }
         });
-        ui.addToggle('Terrain', 'terrainCastShadows', 'Cast Shadows', false, 'Terrain chunks cast shadows (expensive).', (val: boolean) => {
-            if (this.terrainSystem?.lod?.activeMeshes) {
-                for (const m of this.terrainSystem.lod.activeMeshes) {
-                    if (m) m.castShadow = val;
+        ui.addToggle('Terrain', 'terrainCastShadows', 'Physical Self Shadows', true, 'Terrain casts real CSM shadows onto itself. Use Shadow Caster Blur to smooth banding.', (val: boolean) => {
+            const lod = this.terrainSystem?.lod;
+            if (lod) {
+                lod.castShadows = val;
+                for (const m of lod.activeMeshes) {
+                    if (m) m.castShadow = val && (m.userData?.lodDepth ?? 0) >= lod.shadowMinDepth;
                 }
             }
         });
@@ -149,7 +185,21 @@ export class TerrainPlugin {
         }
     }
 
+    async _runTerrainBusy(message: string, work: () => Promise<any>) {
+        const ui = this.core.debugUI;
+        ui?.beginBusy?.(message);
+        try {
+            await work();
+        } finally {
+            ui?.endBusy?.();
+        }
+    }
+
     dispose() {
+        if (this._liveUpdateTimer !== null) {
+            window.clearTimeout(this._liveUpdateTimer);
+            this._liveUpdateTimer = null;
+        }
         if (this.terrainSystem) {
             this.terrainSystem.dispose();
             this.terrainSystem = null;

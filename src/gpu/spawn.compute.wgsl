@@ -32,9 +32,10 @@ struct TerrainSettings {
   densityMountain: f32,
   densitySnow: f32,
   beachShelfFalloff: f32,
-  _pad1: f32,
-  _pad2: f32,
-  _pad3: f32,
+  terraceSteps: f32,
+  terraceSoftness: f32,
+  terraceNoiseAmp: f32,
+  terrainBandingFix: f32,
 };
 
 @compute @workgroup_size(8, 8)

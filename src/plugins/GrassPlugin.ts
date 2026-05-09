@@ -44,6 +44,8 @@ export class GrassPlugin {
     _uBrightness: any;
     _uSaturation: any;
     _uStrawBlend: any;
+    _uStrawVariation: any;
+    _uTintVariation: any;
     _uGroundBlendStrength: any;
 
     _activeChunksReadout: HTMLSpanElement | null;
@@ -147,6 +149,12 @@ export class GrassPlugin {
         });
         ui.addSlider('Grass', 'grassStrawBlend', 'Straw Blend', 0.0, 1.0, 0.05, 0.5, 'How much straw/dead grass appears overall.', (val: number) => {
             if (this._uStrawBlend) this._uStrawBlend.value = val;
+        });
+        ui.addSlider('Grass', 'grassStrawVariation', 'Straw Randomness', 0.0, 1.0, 0.05, 1.0, 'Per-blade random straw/dead color variation. 0 = all blades use the same straw blend.', (val: number) => {
+            if (this._uStrawVariation) this._uStrawVariation.value = val;
+        });
+        ui.addSlider('Grass', 'grassTintVariation', 'Tint Randomness', 0.0, 1.0, 0.05, 1.0, 'Per-blade random brightness/tint variation. 0 = every blade uses the same tint.', (val: number) => {
+            if (this._uTintVariation) this._uTintVariation.value = val;
         });
         ui.addSlider('Grass', 'grassBrightness', 'Brightness', 0.2, 3.0, 0.05, 1.0, 'Overall grass brightness multiplier.', (val: number) => {
             if (this._uBrightness) this._uBrightness.value = val;
@@ -353,6 +361,8 @@ export class GrassPlugin {
         this._uBrightness = uniform(float(1.0));
         this._uSaturation = uniform(float(1.0));
         this._uStrawBlend = uniform(float(0.5));
+        this._uStrawVariation = uniform(float(1.0));
+        this._uTintVariation = uniform(float(1.0));
         this._uGroundBlendStrength = uniform(float(0.6));
 
         const heightRatioTSL = smoothstep(0.0, 0.5, positionLocal.y); 
@@ -365,13 +375,13 @@ export class GrassPlugin {
         const tipStraw  = vec3(this._uTipStraw);
         
         const chunkHash = hash(instanceIndex.add(5.0));
-        const lifeFactor = mix(aBladeRand, chunkHash, 0.4); 
+        const lifeFactor = mix(float(0.5), mix(aBladeRand, chunkHash, 0.4), this._uStrawVariation); 
         const deathMask = pow(lifeFactor, 2.0).mul(this._uStrawBlend.mul(2.0));
         
         const finalRoot = mix(rootGreen, rootStraw, deathMask);
         const finalTip  = mix(tipGreen, tipStraw, deathMask);
         
-        const shadeRandomness = mix(float(0.6), float(1.2), aBladeRand);
+        const shadeRandomness = mix(float(1.0), mix(float(0.6), float(1.2), aBladeRand), this._uTintVariation);
         const rawColor = mix(finalRoot, finalTip, pow(heightRatioTSL, 0.8)).mul(shadeRandomness);
 
         // Apply brightness and saturation
@@ -524,6 +534,7 @@ export class GrassPlugin {
             
             mat.transparent = false; 
             mat.depthWrite = true;
+            mat.alphaTest = 0.1;
             
             this.grassMaterials.push(mat);
         }

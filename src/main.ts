@@ -13,6 +13,7 @@ import { SkyPlugin } from './plugins/SkyPlugin';
 import { PostProcessPlugin } from './plugins/PostProcessPlugin';
 import { PlayerControllerPlugin } from './plugins/PlayerControllerPlugin';
 import { HeightFogPlugin } from './plugins/HeightFogPlugin';
+import { CSMPlugin } from './plugins/CSMPlugin';
 
 async function init() {
     // 1. Setup Three.js WebGPU Renderer
@@ -30,7 +31,7 @@ async function init() {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x8899bb);
 
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 25000);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1.0, 25000);
     camera.position.set(-2000, 5500, 5000);
     camera.lookAt(0, 500, 0);
 
@@ -41,16 +42,12 @@ async function init() {
     const sunLight = new THREE.DirectionalLight(0xffffee, 3.0);
     sunLight.position.set(1000, 2000, 1000);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 4096;
-    sunLight.shadow.mapSize.height = 4096;
-    sunLight.shadow.camera.near = 100;
-    sunLight.shadow.camera.far = 5000;
-    const d = 1000;
-    sunLight.shadow.camera.left = -d;
-    sunLight.shadow.camera.right = d;
-    sunLight.shadow.camera.top = d;
-    sunLight.shadow.camera.bottom = -d;
+    sunLight.shadow.bias = -0.0005;
+    sunLight.shadow.normalBias = 0.02;
+    sunLight.shadow.camera.near = 1.0;
+    sunLight.shadow.camera.far = 15000;
     scene.add(sunLight);
+    scene.add(sunLight.target);
 
     const lightingSystem = { sunLight };
 
@@ -77,6 +74,7 @@ async function init() {
     pluginManager.register('HeightFog', new HeightFogPlugin());
     pluginManager.register('PostProcess', new PostProcessPlugin());
     pluginManager.register('Player', new PlayerControllerPlugin());
+    pluginManager.register('CSM', new CSMPlugin());
 
     await pluginManager.initAll();
 

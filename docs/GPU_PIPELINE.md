@@ -11,9 +11,10 @@ This document describes the WebGPU compute pipeline that drives terrain generati
 │  GraphGenerator   │     │              GPUCompute                      │
 │  (CPU / JS)       │     │              (WebGPU)                        │
 │                   │     │                                              │
-│  Delaunay graph   │────►│  height.compute.wgsl ──► heightTex (RGBA32F) │
-│  River routing    │     │  biome.compute.wgsl  ──► biomeTex  (RGBA32F) │
-│  Rasterization    │     │  spawn.compute.wgsl  ──► spawnTex  (RGBA32F) │
+│  Delaunay graph   │────►│  height.compute.wgsl ──► rawHeight (RGBA32F) │
+│  River routing    │     │  height_blur.compute ──► heightTex (RGBA32F) │
+│  Rasterization    │     │  biome.compute.wgsl  ──► biomeTex  (RGBA32F) │
+│                   │     │  spawn.compute.wgsl  ──► spawnTex  (RGBA32F) │
 │  ──► riverMapTex  │     │                                              │
 └──────────────────┘     └──────────────┬─────────────────────────────────┘
                                         │
@@ -31,15 +32,14 @@ This document describes the WebGPU compute pipeline that drives terrain generati
 ## Compute Pass 1: Height (`height.compute.wgsl`)
 
 **Input:** `riverMapTex` (uploaded from GraphGenerator or loaded from PNG)
-**Output:** `heightTex` — RGBA32Float storage texture
+**Output:** `rawHeight` — RGBA32Float storage texture
 
 ### What it does:
 1. Samples the river map for base elevation and river channel data
 2. Applies multi-octave FBM noise for terrain detail
 3. Carves river valleys using the river flow data
 4. Applies configurable terracing (staircase effect for stylized terrain)
-5. Runs a blur pass for smooth transitions
-6. Generates cliff/ridge noise based on slope steepness
+5. Generates cliff/ridge noise based on slope steepness
 
 ### Key Settings:
 | Uniform | Default | Description |
@@ -53,7 +53,21 @@ This document describes the WebGPU compute pipeline that drives terrain generati
 
 ---
 
-## Compute Pass 2: Biome (`biome.compute.wgsl`)
+## Compute Pass 2: Height Blur (`height_blur.compute.wgsl`)
+
+**Input:** `rawHeight`
+**Output:** `heightTex` — RGBA32Float storage texture
+
+### What it does:
+1. Applies an edge-aware blur to the generated height channel
+2. Smooths terrace intervals and noisy ridges before rendering/shadows
+3. Preserves flow, region ID, and land mask channels
+
+The `terrainBandingFix` uniform controls blur radius and strength. `0` keeps raw generated height, while `1` applies the strongest smoothing.
+
+---
+
+## Compute Pass 3: Biome (`biome.compute.wgsl`)
 
 **Input:** `heightTex`
 **Output:** `biomeTex` — RGBA32Float storage texture
@@ -79,7 +93,7 @@ This document describes the WebGPU compute pipeline that drives terrain generati
 
 ---
 
-## Compute Pass 3: Spawn (`spawn.compute.wgsl`)
+## Compute Pass 4: Spawn (`spawn.compute.wgsl`)
 
 **Input:** `biomeTex`
 **Output:** `spawnTex` — RGBA32Float storage texture
@@ -143,7 +157,10 @@ Offset  Field                Size
 68      beachFlatness        4
 72–104  density[9]           36
 108     beachShelfFalloff    4
-112–124 _pad[3]              12
+112     terraceSteps         4
+116     terraceSoftness      4
+120     terraceNoiseAmp      4
+124     terrainBandingFix    4
 ```
 
-Total: 128 bytes (padded to 16-byte alignment for WebGPU).
+Total: 128 bytes (16-byte aligned for WebGPU).
